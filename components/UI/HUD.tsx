@@ -1,7 +1,7 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
-*/
+ */
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -16,48 +16,22 @@ import {
   Activity,
   PlusCircle,
   Play,
-Languages,
+  Languages,
   Maximize2,
   Minimize2,
 } from 'lucide-react';
 import { useStore } from '../../store';
-import { GameStatus, GEMINI_COLORS, ShopItem, RUN_SPEED_BASE } from '../../types';
+import { GameMode, GameStatus, GEMINI_COLORS, ShopItem, RUN_SPEED_BASE } from '../../types';
 import { audio } from '../System/Audio';
 import { useFullscreen } from '../../fullscreen';
 import { t } from '../../i18n';
 
 // Available Shop Items
 const SHOP_ITEMS: ShopItem[] = [
-  {
-    id: 'DOUBLE_JUMP',
-    name: 'DOUBLE JUMP',
-    description: 'Jump again in mid-air. Essential for high obstacles.',
-    cost: 1000,
-    icon: ArrowUpCircle,
-    oneTime: true,
-  },
-  {
-    id: 'MAX_LIFE',
-    name: 'MAX LIFE UP',
-    description: 'Permanently adds a heart slot and heals you.',
-    cost: 1500,
-    icon: Activity,
-  },
-  {
-    id: 'HEAL',
-    name: 'REPAIR KIT',
-    description: 'Restores 1 Life point instantly.',
-    cost: 1000,
-    icon: PlusCircle,
-  },
-  {
-    id: 'IMMORTAL',
-    name: 'IMMORTALITY',
-    description: 'Unlock Ability: Press Space/Tap to be invincible for 5s.',
-    cost: 3000,
-    icon: Shield,
-    oneTime: true,
-  },
+  { id: 'DOUBLE_JUMP', name: 'DOUBLE JUMP', description: 'Jump again in mid-air. Essential for high obstacles.', cost: 1000, icon: ArrowUpCircle, oneTime: true },
+  { id: 'MAX_LIFE', name: 'MAX LIFE UP', description: 'Permanently adds a heart slot and heals you.', cost: 1500, icon: Activity },
+  { id: 'HEAL', name: 'REPAIR KIT', description: 'Restores 1 Life point instantly.', cost: 1000, icon: PlusCircle },
+  { id: 'IMMORTAL', name: 'IMMORTALITY', description: 'Unlock Ability: Press Space/Tap to be invincible for 5s.', cost: 3000, icon: Shield, oneTime: true },
 ];
 
 const TopLeftControls: React.FC<{ variant?: 'absolute' | 'inline' }> = ({ variant = 'absolute' }) => {
@@ -85,11 +59,7 @@ const TopLeftControls: React.FC<{ variant?: 'absolute' | 'inline' }> = ({ varian
           title={isFullscreen ? t(lang, 'ui.common.exitFullscreen') : t(lang, 'ui.common.fullscreen')}
           className="w-11 h-11 rounded-xl bg-white/10 border border-white/20 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all"
         >
-          {isFullscreen ? (
-            <Minimize2 className="w-5 h-5 text-cyan-200" />
-          ) : (
-            <Maximize2 className="w-5 h-5 text-cyan-200" />
-          )}
+          {isFullscreen ? <Minimize2 className="w-5 h-5 text-cyan-200" /> : <Maximize2 className="w-5 h-5 text-cyan-200" />}
         </button>
       )}
     </div>
@@ -101,7 +71,6 @@ const ShopScreen: React.FC = () => {
   const [items, setItems] = useState<ShopItem[]>([]);
 
   useEffect(() => {
-    // Select 3 random items, filtering out one-time items already bought
     let pool = SHOP_ITEMS.filter((item) => {
       if (item.id === 'DOUBLE_JUMP' && hasDoubleJump) return false;
       if (item.id === 'IMMORTAL' && hasImmortality) return false;
@@ -109,10 +78,9 @@ const ShopScreen: React.FC = () => {
       return true;
     });
 
-    // Shuffle and pick 3
     pool = pool.sort(() => 0.5 - Math.random());
     setItems(pool.slice(0, 3));
-  }, [hasDoubleJump, hasImmortality]);
+  }, [hasDoubleJump, hasImmortality, maxLives]);
 
   return (
     <div className="absolute inset-0 bg-black/90 z-[100] text-white pointer-events-auto backdrop-blur-md overflow-y-auto">
@@ -151,12 +119,14 @@ const ShopScreen: React.FC = () => {
                   onClick={() => buyItem(item.id as any, item.cost)}
                   disabled={isDisabled}
                   className={`px-4 md:px-6 py-2 rounded font-bold w-full text-sm md:text-base ${
-                    !isDisabled
-                      ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:brightness-110'
-                      : 'bg-gray-700 cursor-not-allowed opacity-50'
+                    !isDisabled ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:brightness-110' : 'bg-gray-700 cursor-not-allowed opacity-50'
                   }`}
                 >
-                  {isMaxed ? t(lang, 'ui.shop.maxed') : (<>{item.cost} {t(lang, 'ui.shop.buyUnit')}</>)}
+                  {isMaxed ? t(lang, 'ui.shop.maxed') : (
+                    <>
+                      {item.cost} {t(lang, 'ui.shop.buyUnit')}
+                    </>
+                  )}
                 </button>
               </div>
             );
@@ -174,7 +144,6 @@ const ShopScreen: React.FC = () => {
   );
 };
 
-// --- Mobile Virtual Controls ---
 export const HUD: React.FC = () => {
   const {
     score,
@@ -190,34 +159,35 @@ export const HUD: React.FC = () => {
     isImmortalityActive,
     speed,
     lang,
-  } = useStore();
-  const target = ['G', 'E', 'M', 'I', 'N', 'I'];
 
-  // Common container style
+    // new
+    mode,
+    isShieldActive,
+    isMagnetActive,
+    isControlsReversed,
+    isSlowMoActive,
+    scoreMultiplier,
+    lastPowerUp,
+    startEndlessFromVictory,
+  } = useStore();
+
+  const target = ['G', 'E', 'M', 'I', 'N', 'I'];
   const containerClass = 'absolute inset-0 pointer-events-none flex flex-col justify-between p-4 md:p-8 z-50';
 
-  if (status === GameStatus.SHOP) {
-    return <ShopScreen />;
-  }
+  if (status === GameStatus.SHOP) return <ShopScreen />;
 
   if (status === GameStatus.MENU) {
     return (
       <div className="absolute inset-0 flex items-center justify-center z-[100] bg-black/80 backdrop-blur-sm p-4 pointer-events-auto">
         <TopLeftControls />
-        {/* Card Container */}
         <div className="relative w-full max-w-md rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,255,255,0.2)] border border-white/10 animate-in zoom-in-95 duration-500">
-          {/* Image Container - Auto height to fit full image without cropping */}
           <div className="relative w-full bg-gray-900">
             <img
               src="https://www.gstatic.com/aistudio/starter-apps/gemini_runner/gemini_runner.png"
               alt="Gemini Runner Cover"
               className="w-full h-auto block"
             />
-
-            {/* Gradient Overlay for text readability */}
             <div className="absolute inset-0 bg-gradient-to-t from-[#050011] via-black/30 to-transparent"></div>
-
-            {/* Content positioned at the bottom of the card */}
             <div className="absolute inset-0 flex flex-col justify-end items-center p-6 pb-8 text-center z-10">
               <button
                 onClick={() => {
@@ -293,6 +263,9 @@ export const HUD: React.FC = () => {
   }
 
   if (status === GameStatus.VICTORY) {
+    const endlessText = lang === 'zh-CN' ? '进入无限模式' : 'Enter Endless Mode';
+    const restartText = lang === 'zh-CN' ? '重新开始' : 'Restart';
+
     return (
       <div className="absolute inset-0 bg-gradient-to-b from-purple-900/90 to-black/95 z-[100] text-white pointer-events-auto backdrop-blur-md overflow-y-auto">
         <TopLeftControls />
@@ -322,19 +295,34 @@ export const HUD: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              audio.init();
-              restartGame();
-            }}
-            className="px-8 md:px-12 py-4 md:py-5 bg-white text-black font-black text-lg md:text-xl rounded hover:scale-105 transition-all shadow-[0_0_40px_rgba(255,255,255,0.3)] tracking-widest"
-          >
-            {t(lang, 'ui.victory.restart')}
-          </button>
+          <div className="flex flex-col gap-3 w-full max-w-md">
+            <button
+              onClick={() => {
+                audio.init();
+                startEndlessFromVictory();
+              }}
+              className="px-8 md:px-12 py-4 md:py-5 bg-gradient-to-r from-cyan-400 to-blue-600 text-black font-black text-lg md:text-xl rounded hover:scale-105 transition-all shadow-[0_0_40px_rgba(0,255,255,0.35)] tracking-widest"
+            >
+              {endlessText}
+            </button>
+
+            <button
+              onClick={() => {
+                audio.init();
+                restartGame();
+              }}
+              className="px-8 md:px-12 py-4 md:py-5 bg-white text-black font-black text-lg md:text-xl rounded hover:scale-105 transition-all shadow-[0_0_40px_rgba(255,255,255,0.3)] tracking-widest"
+            >
+              {restartText}
+            </button>
+          </div>
         </div>
       </div>
     );
   }
+
+  const effectiveSpeed = speed * (isSlowMoActive ? 0.65 : 1);
+  const levelText = mode === GameMode.ENDLESS ? (lang === 'zh-CN' ? '∞' : '∞') : `${level}`;
 
   return (
     <>
@@ -345,6 +333,16 @@ export const HUD: React.FC = () => {
             <TopLeftControls variant="inline" />
             <div className="text-3xl md:text-5xl font-bold text-cyan-400 drop-shadow-[0_0_10px_#00ffff] font-cyber">
               {score.toLocaleString()}
+            </div>
+
+            {/* Buff badges */}
+            <div className="pointer-events-none mt-2 flex gap-2 flex-wrap">
+              {isShieldActive && <span className="px-2 py-1 text-xs rounded bg-yellow-400/20 border border-yellow-400/40 text-yellow-200">SHIELD</span>}
+              {isMagnetActive && <span className="px-2 py-1 text-xs rounded bg-cyan-400/20 border border-cyan-400/40 text-cyan-200">MAGNET</span>}
+              {isControlsReversed && <span className="px-2 py-1 text-xs rounded bg-pink-400/20 border border-pink-400/40 text-pink-200">{lang === 'zh-CN' ? '反转' : 'REVERSE'}</span>}
+              {isSlowMoActive && <span className="px-2 py-1 text-xs rounded bg-green-400/20 border border-green-400/40 text-green-200">{lang === 'zh-CN' ? '慢动作' : 'SLOW'}</span>}
+              {scoreMultiplier > 1 && <span className="px-2 py-1 text-xs rounded bg-yellow-300/20 border border-yellow-300/40 text-yellow-100">x{scoreMultiplier}</span>}
+              {lastPowerUp && <span className="px-2 py-1 text-xs rounded bg-white/10 border border-white/20 text-white/80">{lastPowerUp}</span>}
             </div>
           </div>
 
@@ -362,7 +360,7 @@ export const HUD: React.FC = () => {
 
         {/* Level Indicator */}
         <div className="absolute top-5 left-1/2 transform -translate-x-1/2 text-sm md:text-lg text-purple-300 font-bold tracking-wider font-mono bg-black/50 px-3 py-1 rounded-full border border-purple-500/30 backdrop-blur-sm z-50">
-          {t(lang, 'ui.hud.level')} {level} <span className="text-gray-500 text-xs md:text-sm">/ 3</span>
+          {t(lang, 'ui.hud.level')} {levelText} <span className="text-gray-500 text-xs md:text-sm">{mode === GameMode.ENDLESS ? '' : '/ 3'}</span>
         </div>
 
         {/* Active Skill Indicator */}
@@ -372,40 +370,41 @@ export const HUD: React.FC = () => {
           </div>
         )}
 
-        {/* Gemini Collection Status */}
-        <div className="absolute top-16 md:top-24 left-1/2 transform -translate-x-1/2 flex space-x-2 md:space-x-3">
-          {target.map((char, idx) => {
-            const isCollected = collectedLetters.includes(idx);
-            const color = GEMINI_COLORS[idx];
+        {/* Gemini Collection Status (Endless 不显示字母进度) */}
+        {mode !== GameMode.ENDLESS && (
+          <div className="absolute top-16 md:top-24 left-1/2 transform -translate-x-1/2 flex space-x-2 md:space-x-3">
+            {target.map((char, idx) => {
+              const isCollected = collectedLetters.includes(idx);
+              const color = GEMINI_COLORS[idx];
 
-            return (
-              <div
-                key={idx}
-                style={{
-                  borderColor: isCollected ? color : 'rgba(55, 65, 81, 1)',
-                  // Use dark text (almost black) when collected to contrast with neon background
-                  color: isCollected ? 'rgba(0, 0, 0, 0.8)' : 'rgba(55, 65, 81, 1)',
-                  boxShadow: isCollected ? `0 0 20px ${color}` : 'none',
-                  backgroundColor: isCollected ? color : 'rgba(0, 0, 0, 0.9)',
-                }}
-                className="w-8 h-10 md:w-10 md:h-12 flex items-center justify-center border-2 font-black text-lg md:text-xl font-cyber rounded-lg transform transition-all duration-300"
-              >
-                {char}
-              </div>
-            );
-          })}
-        </div>
+              return (
+                <div
+                  key={idx}
+                  style={{
+                    borderColor: isCollected ? color : 'rgba(55, 65, 81, 1)',
+                    color: isCollected ? 'rgba(0, 0, 0, 0.8)' : 'rgba(55, 65, 81, 1)',
+                    boxShadow: isCollected ? `0 0 20px ${color}` : 'none',
+                    backgroundColor: isCollected ? color : 'rgba(0, 0, 0, 0.9)',
+                  }}
+                  className="w-8 h-10 md:w-10 md:h-12 flex items-center justify-center border-2 font-black text-lg md:text-xl font-cyber rounded-lg transform transition-all duration-300"
+                >
+                  {char}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Bottom Overlay - Speed Indicator */}
         <div className="w-full flex justify-end items-end mb-24 lg:mb-0">
           <div className="flex items-center space-x-2 text-cyan-500 opacity-70">
             <Zap className="w-4 h-4 md:w-6 md:h-6 animate-pulse" />
             <span className="font-mono text-base md:text-xl">
-              {t(lang, 'ui.hud.speed')} {Math.round((speed / RUN_SPEED_BASE) * 100)}%
+              {t(lang, 'ui.hud.speed')} {Math.round((effectiveSpeed / RUN_SPEED_BASE) * 100)}%
             </span>
           </div>
         </div>
       </div>
-</>
+    </>
   );
 };
