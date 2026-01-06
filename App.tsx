@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Environment } from './components/World/Environment';
@@ -13,12 +12,13 @@ import { LevelManager } from './components/World/LevelManager';
 import { Effects } from './components/World/Effects';
 import { HUD } from './components/UI/HUD';
 import { useStore } from './store';
+import { useFullscreen } from './fullscreen';
 
 // Dynamic Camera Controller
 const CameraController = () => {
   const { camera, size } = useThree();
   const { laneCount } = useStore();
-  
+
   useFrame((state, delta) => {
     // Determine if screen is narrow (mobile portrait)
     const aspect = size.width / size.height;
@@ -35,52 +35,73 @@ const CameraController = () => {
     // Calculate target based on how many extra lanes we have relative to the start
     const extraLanes = Math.max(0, laneCount - 3);
 
-    const targetY = 5.5 + (extraLanes * heightFactor);
-    const targetZ = 8.0 + (extraLanes * distFactor);
+    const targetY = 5.5 + extraLanes * heightFactor;
+    const targetZ = 8.0 + extraLanes * distFactor;
 
     const targetPos = new THREE.Vector3(0, targetY, targetZ);
-    
+
     // Smoothly interpolate camera position
     camera.position.lerp(targetPos, delta * 2.0);
-    
+
     // Look further down the track to see the end of lanes
     // Adjust look target slightly based on height to maintain angle
-    camera.lookAt(0, 0, -30); 
+    camera.lookAt(0, 0, -30);
   });
-  
+
   return null;
 };
 
 function Scene() {
   return (
     <>
-        <Environment />
-        <group>
-            {/* Attach a userData to identify player group for LevelManager collision logic */}
-            <group userData={{ isPlayer: true }} name="PlayerGroup">
-                 <Player />
-            </group>
-            <LevelManager />
+      <Environment />
+      <group>
+        {/* Attach a userData to identify player group for LevelManager collision logic */}
+        <group userData={{ isPlayer: true }} name="PlayerGroup">
+          <Player />
         </group>
-        <Effects />
+        <LevelManager />
+      </group>
+      <Effects />
     </>
   );
 }
 
 function App() {
+  const { toggleLang } = useStore();
+  const { supported: fsSupported, toggle: toggleFs } = useFullscreen('app-root');
+
+  // Keyboard shortcuts:
+  // - F: toggle fullscreen
+  // - L: toggle language
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.code === 'KeyF') {
+        if (fsSupported) void toggleFs();
+      }
+      if (e.code === 'KeyL') {
+        toggleLang();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fsSupported, toggleFs, toggleLang]);
+
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden select-none">
+    <div id="app-root" className="relative w-full h-screen bg-black overflow-hidden select-none">
       <HUD />
       <Canvas
         shadows
-        dpr={[1, 1.5]} 
-        gl={{ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" }}
+        dpr={[1, 1.5]}
+        gl={{ antialias: false, stencil: false, depth: true, powerPreference: 'high-performance' }}
         // Initial camera, matches the controller base
         camera={{ position: [0, 5.5, 8], fov: 60 }}
       >
         <CameraController />
         <Suspense fallback={null}>
-            <Scene />
+          <Scene />
         </Suspense>
       </Canvas>
     </div>

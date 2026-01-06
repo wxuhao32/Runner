@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
-
 import { create } from 'zustand';
 import { GameStatus, RUN_SPEED_BASE } from './types';
+import type { Lang } from './i18n';
 
 interface GameState {
   status: GameStatus;
@@ -13,12 +13,17 @@ interface GameState {
   lives: number;
   maxLives: number;
   speed: number;
-  collectedLetters: number[]; 
+  collectedLetters: number[];
   level: number;
   laneCount: number;
   gemsCollected: number;
   distance: number;
-  
+
+  // UI / Settings
+  lang: Lang;
+  setLang: (lang: Lang) => void;
+  toggleLang: () => void;
+
   // Inventory / Abilities
   hasDoubleJump: boolean;
   hasImmortality: boolean;
@@ -33,17 +38,31 @@ interface GameState {
   collectLetter: (index: number) => void;
   setStatus: (status: GameStatus) => void;
   setDistance: (dist: number) => void;
-  
+
   // Shop / Abilities
   buyItem: (type: 'DOUBLE_JUMP' | 'MAX_LIFE' | 'HEAL' | 'IMMORTAL', cost: number) => boolean;
   advanceLevel: () => void;
   openShop: () => void;
   closeShop: () => void;
   activateImmortality: () => void;
+
+  // Legacy / debug (unused but kept for compatibility)
+  increaseLevel: () => void;
 }
 
 const GEMINI_TARGET = ['G', 'E', 'M', 'I', 'N', 'I'];
 const MAX_LEVEL = 3;
+
+function loadLang(): Lang {
+  if (typeof window === 'undefined') return 'zh-CN';
+  const saved = window.localStorage.getItem('runner.lang');
+  if (saved === 'zh-CN' || saved === 'en-US') return saved;
+
+  // Fallback to browser language, defaulting to Chinese.
+  const nav = (navigator.language || '').toLowerCase();
+  if (nav.startsWith('en')) return 'en-US';
+  return 'zh-CN';
+}
 
 export const useStore = create<GameState>((set, get) => ({
   status: GameStatus.MENU,
@@ -56,42 +75,61 @@ export const useStore = create<GameState>((set, get) => ({
   laneCount: 3,
   gemsCollected: 0,
   distance: 0,
-  
+
+  // UI / Settings
+  lang: loadLang(),
+  setLang: (lang) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('runner.lang', lang);
+    }
+    set({ lang });
+  },
+  toggleLang: () => {
+    const next: Lang = get().lang === 'zh-CN' ? 'en-US' : 'zh-CN';
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('runner.lang', next);
+    }
+    set({ lang: next });
+  },
+
+  // Abilities
   hasDoubleJump: false,
   hasImmortality: false,
   isImmortalityActive: false,
 
-  startGame: () => set({ 
-    status: GameStatus.PLAYING, 
-    score: 0, 
-    lives: 3, 
-    maxLives: 3,
-    speed: RUN_SPEED_BASE,
-    collectedLetters: [],
-    level: 1,
-    laneCount: 3,
-    gemsCollected: 0,
-    distance: 0,
-    hasDoubleJump: false,
-    hasImmortality: false,
-    isImmortalityActive: false
-  }),
+  startGame: () =>
+    set({
+      status: GameStatus.PLAYING,
+      score: 0,
+      lives: 3,
+      maxLives: 3,
+      speed: RUN_SPEED_BASE,
+      collectedLetters: [],
+      level: 1,
+      laneCount: 3,
+      gemsCollected: 0,
+      distance: 0,
+      hasDoubleJump: false,
+      hasImmortality: false,
+      isImmortalityActive: false,
+    }),
 
-  restartGame: () => set({ 
-    status: GameStatus.PLAYING, 
-    score: 0, 
-    lives: 3, 
-    maxLives: 3,
-    speed: RUN_SPEED_BASE,
-    collectedLetters: [],
-    level: 1,
-    laneCount: 3,
-    gemsCollected: 0,
-    distance: 0,
-    hasDoubleJump: false,
-    hasImmortality: false,
-    isImmortalityActive: false
-  }),
+  restartGame: () =>
+    set({
+      status: GameStatus.PLAYING,
+      score: 0,
+      lives: 3,
+      maxLives: 3,
+      speed: RUN_SPEED_BASE,
+      collectedLetters: [],
+      level: 1,
+      laneCount: 3,
+      gemsCollected: 0,
+      distance: 0,
+      hasDoubleJump: false,
+      hasImmortality: false,
+      isImmortalityActive: false,
+    }),
 
   takeDamage: () => {
     const { lives, isImmortalityActive } = get();
@@ -105,106 +143,109 @@ export const useStore = create<GameState>((set, get) => ({
   },
 
   addScore: (amount) => set((state) => ({ score: state.score + amount })),
-  
-  collectGem: (value) => set((state) => ({ 
-    score: state.score + value, 
-    gemsCollected: state.gemsCollected + 1 
-  })),
+
+  collectGem: (value) =>
+    set((state) => ({
+      score: state.score + value,
+      gemsCollected: state.gemsCollected + 1,
+    })),
 
   setDistance: (dist) => set({ distance: dist }),
 
   collectLetter: (index) => {
     const { collectedLetters, level, speed } = get();
-    
+
     if (!collectedLetters.includes(index)) {
       const newLetters = [...collectedLetters, index];
-      
+
       // LINEAR SPEED INCREASE: Add 10% of BASE speed per letter
       // This ensures 110% -> 120% -> 130% consistent steps
-      const speedIncrease = RUN_SPEED_BASE * 0.10;
+      const speedIncrease = RUN_SPEED_BASE * 0.1;
       const nextSpeed = speed + speedIncrease;
 
-      set({ 
+      set({
         collectedLetters: newLetters,
-        speed: nextSpeed
+        speed: nextSpeed,
       });
 
       // Check if full word collected
       if (newLetters.length === GEMINI_TARGET.length) {
         if (level < MAX_LEVEL) {
-            // Immediately advance level
-            // The Shop Portal will be spawned by LevelManager at the start of the new level
-            get().advanceLevel();
+          // Immediately advance level
+          // The Shop Portal will be spawned by LevelManager at the start of the new level
+          get().advanceLevel();
         } else {
-            // Victory Condition
-            set({
-                status: GameStatus.VICTORY,
-                score: get().score + 5000
-            });
+          // Victory Condition
+          set({
+            status: GameStatus.VICTORY,
+            score: get().score + 5000,
+          });
         }
       }
     }
   },
 
   advanceLevel: () => {
-      const { level, laneCount, speed } = get();
-      const nextLevel = level + 1;
-      
-      // LINEAR LEVEL INCREASE: Add 40% of BASE speed per level
-      // Combined with the 6 letters (60%), this totals +100% speed per full level cycle
-      const speedIncrease = RUN_SPEED_BASE * 0.40;
-      const newSpeed = speed + speedIncrease;
+    const { level, laneCount, speed } = get();
+    const nextLevel = level + 1;
 
-      set({
-          level: nextLevel,
-          laneCount: Math.min(laneCount + 2, 9), // Expand lanes
-          status: GameStatus.PLAYING, // Keep playing, user runs into shop
-          speed: newSpeed,
-          collectedLetters: [] // Reset letters
-      });
+    // LINEAR LEVEL INCREASE: Add 40% of BASE speed per level
+    // Combined with the 6 letters (60%), this totals +100% speed per full level cycle
+    const speedIncrease = RUN_SPEED_BASE * 0.4;
+    const newSpeed = speed + speedIncrease;
+
+    set({
+      level: nextLevel,
+      laneCount: Math.min(laneCount + 2, 9), // Expand lanes
+      status: GameStatus.PLAYING, // Keep playing, user runs into shop
+      speed: newSpeed,
+      collectedLetters: [], // Reset letters
+    });
   },
 
   openShop: () => set({ status: GameStatus.SHOP }),
-  
+
   closeShop: () => set({ status: GameStatus.PLAYING }),
 
   buyItem: (type, cost) => {
-      const { score, maxLives, lives } = get();
-      
-      if (score >= cost) {
-          set({ score: score - cost });
-          
-          switch (type) {
-              case 'DOUBLE_JUMP':
-                  set({ hasDoubleJump: true });
-                  break;
-              case 'MAX_LIFE':
-                  set({ maxLives: maxLives + 1, lives: lives + 1 });
-                  break;
-              case 'HEAL':
-                  set({ lives: Math.min(lives + 1, maxLives) });
-                  break;
-              case 'IMMORTAL':
-                  set({ hasImmortality: true });
-                  break;
-          }
-          return true;
+    const { score, maxLives, lives } = get();
+
+    if (score >= cost) {
+      set({ score: score - cost });
+
+      switch (type) {
+        case 'DOUBLE_JUMP':
+          set({ hasDoubleJump: true });
+          break;
+        case 'MAX_LIFE':
+          set({ maxLives: maxLives + 1, lives: lives + 1 });
+          break;
+        case 'HEAL':
+          set({ lives: Math.min(lives + 1, maxLives) });
+          break;
+        case 'IMMORTAL':
+          set({ hasImmortality: true });
+          break;
       }
-      return false;
+      return true;
+    }
+    return false;
   },
 
   activateImmortality: () => {
-      const { hasImmortality, isImmortalityActive } = get();
-      if (hasImmortality && !isImmortalityActive) {
-          set({ isImmortalityActive: true });
-          
-          // Lasts 5 seconds
-          setTimeout(() => {
-              set({ isImmortalityActive: false });
-          }, 5000);
-      }
+    const { hasImmortality, isImmortalityActive } = get();
+    if (hasImmortality && !isImmortalityActive) {
+      set({ isImmortalityActive: true });
+
+      // Lasts 5 seconds
+      setTimeout(() => {
+        set({ isImmortalityActive: false });
+      }, 5000);
+    }
   },
 
   setStatus: (status) => set({ status }),
+
+  // Legacy / debug (unused)
   increaseLevel: () => set((state) => ({ level: state.level + 1 })),
 }));
