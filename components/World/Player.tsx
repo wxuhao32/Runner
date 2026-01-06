@@ -1,7 +1,9 @@
+
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- */
+*/
+
 
 import React, { useRef, useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -10,9 +12,11 @@ import { useStore } from '../../store';
 import { LANE_WIDTH, GameStatus } from '../../types';
 import { audio } from '../System/Audio';
 
+// Physics Constants
 const GRAVITY = 50;
-const JUMP_FORCE = 16;
+const JUMP_FORCE = 16; // Results in ~2.56 height (v^2 / 2g)
 
+// Static Geometries
 const TORSO_GEO = new THREE.CylinderGeometry(0.25, 0.15, 0.6, 4);
 const JETPACK_GEO = new THREE.BoxGeometry(0.3, 0.4, 0.15);
 const GLOW_STRIP_GEO = new THREE.PlaneGeometry(0.05, 0.2);
@@ -21,292 +25,394 @@ const ARM_GEO = new THREE.BoxGeometry(0.12, 0.6, 0.12);
 const JOINT_SPHERE_GEO = new THREE.SphereGeometry(0.07);
 const HIPS_GEO = new THREE.CylinderGeometry(0.16, 0.16, 0.2);
 const LEG_GEO = new THREE.BoxGeometry(0.15, 0.7, 0.15);
-const SHADOW_GEO = new THREE.CircleGeometry(0.5, 24);
+const SHADOW_GEO = new THREE.CircleGeometry(0.5, 32);
 
 export const Player: React.FC = () => {
   const groupRef = useRef<THREE.Group>(null);
   const bodyRef = useRef<THREE.Group>(null);
   const shadowRef = useRef<THREE.Mesh>(null);
-
+  
+  // Limb Refs for Animation
   const leftArmRef = useRef<THREE.Group>(null);
   const rightArmRef = useRef<THREE.Group>(null);
   const leftLegRef = useRef<THREE.Group>(null);
   const rightLegRef = useRef<THREE.Group>(null);
+  const headRef = useRef<THREE.Group>(null);
 
-  const {
-    status,
-    laneCount,
-    takeDamage,
-    hasDoubleJump,
-    activateImmortality,
-    isImmortalityActive,
-    isShieldActive,
-    isControlsReversed,
-  } = useStore();
-
-  const [lane, setLane] = React.useState(0);
+  const { status, laneCount, takeDamage, hasDoubleJump, activateImmortality, isImmortalityActive, isControlsInverted } = useStore();
+  
+  // Keep lane in a ref for instant response (avoids React re-renders on every swipe).
+  const laneRef = useRef(0);
   const targetX = useRef(0);
-
+  
+  // Physics State (using Refs for immediate logic updates)
   const isJumping = useRef(false);
   const velocityY = useRef(0);
-  const jumpsPerformed = useRef(0);
-  const spinRotation = useRef(0);
+  const jumpsPerformed = useRef(0); 
+  const spinRotation = useRef(0); // For double jump flip
 
-  const pointerDown = useRef(false);
-  const startX = useRef(0);
-  const startY = useRef(0);
-  const jumpTriggered = useRef(false);
+  const pointerId = useRef<number | null>(null);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const touchStartT = useRef(0);
 
   const isInvincible = useRef(false);
   const lastDamageTime = useRef(0);
 
+  // Memoized Materials
   const { armorMaterial, jointMaterial, glowMaterial, shadowMaterial } = useMemo(() => {
-    const strongInv = isImmortalityActive || isShieldActive;
-    const armorColor = strongInv ? '#ffd700' : '#00aaff';
-    const glowColor = strongInv ? '#ffffff' : '#00ffff';
+      const armorColor = isImmortalityActive ? '#ffd700' : '#00aaff';
+      const glowColor = isImmortalityActive ? '#ffffff' : '#00ffff';
+      
+      return {
+          armorMaterial: new THREE.MeshStandardMaterial({ color: armorColor, roughness: 0.3, metalness: 0.8 }),
+          jointMaterial: new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.7, metalness: 0.5 }),
+          glowMaterial: new THREE.MeshBasicMaterial({ color: glowColor }),
+          shadowMaterial: new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.3, transparent: true })
+      };
+  }, [isImmortalityActive]); // Only recreate if immortality state changes (for color shift)
 
-    return {
-      armorMaterial: new THREE.MeshStandardMaterial({ color: armorColor, roughness: 0.3, metalness: 0.8 }),
-      jointMaterial: new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.7, metalness: 0.5 }),
-      glowMaterial: new THREE.MeshBasicMaterial({ color: glowColor }),
-      shadowMaterial: new THREE.MeshBasicMaterial({ color: '#000000', opacity: 0.3, transparent: true }),
-    };
-  }, [isImmortalityActive, isShieldActive]);
-
+  // --- Reset State on Game Start ---
   useEffect(() => {
-    if (status === GameStatus.PLAYING) {
-      isJumping.current = false;
-      jumpsPerformed.current = 0;
-      velocityY.current = 0;
-      spinRotation.current = 0;
-      if (groupRef.current) groupRef.current.position.y = 0;
-      if (bodyRef.current) bodyRef.current.rotation.x = 0;
-    }
+      if (status === GameStatus.PLAYING) {
+          laneRef.current = 0;
+          isJumping.current = false;
+          jumpsPerformed.current = 0;
+          velocityY.current = 0;
+          spinRotation.current = 0;
+          if (groupRef.current) groupRef.current.position.y = 0;
+          if (groupRef.current) groupRef.current.position.x = 0;
+          if (bodyRef.current) bodyRef.current.rotation.x = 0;
+      }
   }, [status]);
-
+  
+  // Safety: Clamp lane if laneCount changes (e.g. restart)
   useEffect(() => {
-    const maxLane = Math.floor(laneCount / 2);
-    if (Math.abs(lane) > maxLane) {
-      setLane((l) => Math.max(Math.min(l, maxLane), -maxLane));
-    }
-  }, [laneCount, lane]);
+      const maxLane = Math.floor(laneCount / 2);
+      const l = laneRef.current;
+      if (Math.abs(l) > maxLane) {
+          laneRef.current = Math.max(Math.min(l, maxLane), -maxLane);
+      }
+  }, [laneCount]);
 
+  // --- Controls (Movement Logic) ---
   const moveLane = (dir: -1 | 1) => {
-    const maxLane = Math.floor(laneCount / 2);
-    const realDir = isControlsReversed ? (dir === -1 ? 1 : -1) : dir;
-    setLane((l) => Math.max(Math.min(l + realDir, maxLane), -maxLane));
+      const maxLane = Math.floor(laneCount / 2);
+      laneRef.current = Math.max(Math.min(laneRef.current + dir, maxLane), -maxLane);
   };
+
+  const moveLeft = () => moveLane(isControlsInverted ? 1 : -1);
+  const moveRight = () => moveLane(isControlsInverted ? -1 : 1);
 
   const triggerJump = () => {
     const maxJumps = hasDoubleJump ? 2 : 1;
 
     if (!isJumping.current) {
-      audio.playJump(false);
-      isJumping.current = true;
-      jumpsPerformed.current = 1;
-      velocityY.current = JUMP_FORCE;
+        // First Jump
+        audio.playJump(false);
+        isJumping.current = true;
+        jumpsPerformed.current = 1;
+        velocityY.current = JUMP_FORCE;
     } else if (jumpsPerformed.current < maxJumps) {
-      audio.playJump(true);
-      jumpsPerformed.current += 1;
-      velocityY.current = JUMP_FORCE;
-      spinRotation.current = 0;
+        // Double Jump (Mid-air)
+        audio.playJump(true);
+        jumpsPerformed.current += 1;
+        velocityY.current = JUMP_FORCE; // Reset velocity upwards
+        spinRotation.current = 0; // Start flip
     }
   };
 
-  // 指针事件：比 touchend 更跟手（滑动过程中就触发变道）
+  // --- Event Listeners ---
+  useEffect(() => {
+    // Movement / jump controls are swipe-based (mobile runner style).
+    // Keyboard + on-screen button movement controls were removed in iteration 2.
+    // NOTE: Skill activation is still available via tap (see touch handlers below).
+  }, []);
+
+
+  // --- Touch / Swipe Controls ---
   useEffect(() => {
     const opts: AddEventListenerOptions = { passive: false };
+    const el: any = document.getElementById('app-root') || window;
 
-    const onDown = (e: PointerEvent) => {
-      if ((e.target as HTMLElement).closest('button')) return;
-      if (status !== GameStatus.PLAYING) return;
+    const isOnButton = (t: EventTarget | null) => (t as HTMLElement | null)?.closest?.('button');
 
-      pointerDown.current = true;
-      jumpTriggered.current = false;
+    const minSwipe = 28;
+    const tapSlop = 12;
+    const maxTapMs = 260;
 
-      startX.current = e.clientX;
-      startY.current = e.clientY;
+    const onPointerDown = (e: PointerEvent) => {
+      if (isOnButton(e.target)) return;
 
-      e.preventDefault();
+      // Lock on first pointer only.
+      if (pointerId.current !== null) return;
+
+      if (e.cancelable) e.preventDefault();
+      pointerId.current = e.pointerId;
+
+      touchStartX.current = e.clientX;
+      touchStartY.current = e.clientY;
+      touchStartT.current = performance.now();
+
+      // Capture pointer so we still get the UP even if finger leaves the canvas.
+      try {
+        (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+      } catch {
+        // ignore
+      }
     };
 
-    const onMove = (e: PointerEvent) => {
-      if (!pointerDown.current) return;
-      if ((e.target as HTMLElement).closest('button')) return;
+    const onPointerMove = (e: PointerEvent) => {
+      if (pointerId.current !== e.pointerId) return;
+      if (isOnButton(e.target)) return;
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (pointerId.current !== e.pointerId) return;
+      pointerId.current = null;
+
       if (status !== GameStatus.PLAYING) return;
 
-      const dx = e.clientX - startX.current;
-      const dy = e.clientY - startY.current;
+      const deltaX = e.clientX - touchStartX.current;
+      const deltaY = e.clientY - touchStartY.current;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      const dt = performance.now() - touchStartT.current;
 
-      // 横向：每超过阈值就立刻变道，并重置起点实现“连续变道”
-      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 38) {
-        moveLane(dx > 0 ? 1 : -1);
-        startX.current = e.clientX; // 重置，让连续变道更自然
+      if (absX > absY && absX > minSwipe) {
+        if (deltaX > 0) moveRight();
+        else moveLeft();
+        return;
       }
 
-      // 上滑：即时跳（只触发一次，避免抖动）
-      if (!jumpTriggered.current && Math.abs(dy) > Math.abs(dx) && dy < -46) {
+      if (absY > absX && deltaY < -minSwipe) {
         triggerJump();
-        jumpTriggered.current = true;
+        return;
       }
 
-      e.preventDefault();
-    };
-
-    const onUp = (e: PointerEvent) => {
-      if (!pointerDown.current) return;
-      pointerDown.current = false;
-
-      // 轻点：触发技能（避免误触按钮）
-      const dx = e.clientX - startX.current;
-      const dy = e.clientY - startY.current;
-      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-        if (!(e.target as HTMLElement).closest('button')) {
-          activateImmortality();
-        }
+      // Tap: activate immortality skill (if purchased)
+      if (absX < tapSlop && absY < tapSlop && dt < maxTapMs && !isOnButton(e.target)) {
+        activateImmortality();
       }
     };
 
-    window.addEventListener('pointerdown', onDown, opts);
-    window.addEventListener('pointermove', onMove, opts);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
+    // Pointer Events (preferred: better latency, unified across devices)
+    if (typeof window !== 'undefined' && 'PointerEvent' in window) {
+      el.addEventListener('pointerdown', onPointerDown, opts);
+      el.addEventListener('pointermove', onPointerMove, opts);
+      el.addEventListener('pointerup', onPointerUp, opts);
+      el.addEventListener('pointercancel', onPointerUp, opts);
+
+      return () => {
+        el.removeEventListener('pointerdown', onPointerDown);
+        el.removeEventListener('pointermove', onPointerMove);
+        el.removeEventListener('pointerup', onPointerUp);
+        el.removeEventListener('pointercancel', onPointerUp);
+      };
+    }
+
+    // Fallback (older Safari): Touch Events
+    const handleTouchStart = (e: TouchEvent) => {
+      if (isOnButton(e.target)) return;
+      if (e.cancelable) e.preventDefault();
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+      touchStartT.current = performance.now();
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (isOnButton(e.target)) return;
+      if (e.cancelable) e.preventDefault();
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (status !== GameStatus.PLAYING) return;
+      const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+      const absX = Math.abs(deltaX);
+      const absY = Math.abs(deltaY);
+      const dt = performance.now() - touchStartT.current;
+
+      if (absX > absY && absX > minSwipe) {
+        if (deltaX > 0) moveRight();
+        else moveLeft();
+      } else if (absY > absX && deltaY < -minSwipe) {
+        triggerJump();
+      } else if (absX < tapSlop && absY < tapSlop && dt < maxTapMs && !isOnButton(e.target)) {
+        activateImmortality();
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, opts);
+    window.addEventListener('touchmove', handleTouchMove, opts);
+    window.addEventListener('touchend', handleTouchEnd);
 
     return () => {
-      window.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [status, laneCount, hasDoubleJump, activateImmortality, isControlsReversed]);
+  }, [status, laneCount, hasDoubleJump, activateImmortality, isControlsInverted]);
 
+  // --- Animation Loop ---
   useFrame((state, delta) => {
     if (!groupRef.current) return;
     if (status !== GameStatus.PLAYING && status !== GameStatus.SHOP) return;
 
-    targetX.current = lane * LANE_WIDTH;
-    groupRef.current.position.x = THREE.MathUtils.lerp(groupRef.current.position.x, targetX.current, delta * 18);
+    // 1. Horizontal Position (fast & smooth follow)
+    targetX.current = laneRef.current * LANE_WIDTH;
+    // Exponential smoothing is steadier across FPS than raw lerp(delta*...)
+    const t = 1 - Math.exp(-delta * 22);
+    groupRef.current.position.x += (targetX.current - groupRef.current.position.x) * t;
 
+    // 2. Physics (Jump)
     if (isJumping.current) {
-      groupRef.current.position.y += velocityY.current * delta;
-      velocityY.current -= GRAVITY * delta;
+        // Apply Velocity
+        groupRef.current.position.y += velocityY.current * delta;
+        // Apply Gravity
+        velocityY.current -= GRAVITY * delta;
 
-      if (groupRef.current.position.y <= 0) {
-        groupRef.current.position.y = 0;
-        isJumping.current = false;
-        jumpsPerformed.current = 0;
-        velocityY.current = 0;
-        if (bodyRef.current) bodyRef.current.rotation.x = 0;
-      }
-
-      if (jumpsPerformed.current === 2 && bodyRef.current) {
-        spinRotation.current -= delta * 15;
-        if (spinRotation.current < -Math.PI * 2) spinRotation.current = -Math.PI * 2;
-        bodyRef.current.rotation.x = spinRotation.current;
-      }
-    }
-
-    const xDiff = targetX.current - groupRef.current.position.x;
-    groupRef.current.rotation.z = -xDiff * 0.2;
-    groupRef.current.rotation.x = isJumping.current ? 0.1 : 0.05;
-
-    const time = state.clock.elapsedTime * 25;
-
-    if (!isJumping.current) {
-      if (leftArmRef.current) leftArmRef.current.rotation.x = Math.sin(time) * 0.7;
-      if (rightArmRef.current) rightArmRef.current.rotation.x = Math.sin(time + Math.PI) * 0.7;
-      if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(time + Math.PI) * 1.0;
-      if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(time) * 1.0;
-
-      if (bodyRef.current) bodyRef.current.position.y = 1.1 + Math.abs(Math.sin(time)) * 0.1;
-    } else {
-      const jumpPoseSpeed = delta * 10;
-      if (leftArmRef.current) leftArmRef.current.rotation.x = THREE.MathUtils.lerp(leftArmRef.current.rotation.x, -2.5, jumpPoseSpeed);
-      if (rightArmRef.current) rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, -2.5, jumpPoseSpeed);
-      if (leftLegRef.current) leftLegRef.current.rotation.x = THREE.MathUtils.lerp(leftLegRef.current.rotation.x, 0.5, jumpPoseSpeed);
-      if (rightLegRef.current) rightLegRef.current.rotation.x = THREE.MathUtils.lerp(rightLegRef.current.rotation.x, -0.5, jumpPoseSpeed);
-
-      if (bodyRef.current && jumpsPerformed.current !== 2) bodyRef.current.position.y = 1.1;
-    }
-
-    if (shadowRef.current) {
-      const height = groupRef.current.position.y;
-      const scale = Math.max(0.2, 1 - (height / 2.5) * 0.5);
-      const runStretch = isJumping.current ? 1 : 1 + Math.abs(Math.sin(time)) * 0.3;
-
-      shadowRef.current.scale.set(scale, scale, scale * runStretch);
-      const material = shadowRef.current.material as THREE.MeshBasicMaterial;
-      if (material && !Array.isArray(material)) material.opacity = Math.max(0.1, 0.3 - (height / 2.5) * 0.2);
-    }
-
-    // Flicker
-    const showFlicker = isInvincible.current || isImmortalityActive || isShieldActive;
-    if (showFlicker) {
-      if (isInvincible.current) {
-        if (Date.now() - lastDamageTime.current > 1500) {
-          isInvincible.current = false;
-          groupRef.current.visible = true;
-        } else {
-          groupRef.current.visible = Math.floor(Date.now() / 50) % 2 === 0;
+        // Floor Collision
+        if (groupRef.current.position.y <= 0) {
+            groupRef.current.position.y = 0;
+            isJumping.current = false;
+            jumpsPerformed.current = 0;
+            velocityY.current = 0;
+            // Reset flip
+            if (bodyRef.current) bodyRef.current.rotation.x = 0;
         }
-      }
-      if (isImmortalityActive || isShieldActive) groupRef.current.visible = true;
+
+        // Double Jump Flip
+        if (jumpsPerformed.current === 2 && bodyRef.current) {
+             // Rotate 360 degrees quickly
+             spinRotation.current -= delta * 15;
+             if (spinRotation.current < -Math.PI * 2) spinRotation.current = -Math.PI * 2;
+             bodyRef.current.rotation.x = spinRotation.current;
+        }
+    }
+
+    // Banking Rotation
+    const xDiff = targetX.current - groupRef.current.position.x;
+    groupRef.current.rotation.z = -xDiff * 0.2; 
+    groupRef.current.rotation.x = isJumping.current ? 0.1 : 0.05; 
+
+    // 3. Skeletal Animation
+    const time = state.clock.elapsedTime * 25; 
+    
+    if (!isJumping.current) {
+        // Running Cycle
+        if (leftArmRef.current) leftArmRef.current.rotation.x = Math.sin(time) * 0.7;
+        if (rightArmRef.current) rightArmRef.current.rotation.x = Math.sin(time + Math.PI) * 0.7;
+        if (leftLegRef.current) leftLegRef.current.rotation.x = Math.sin(time + Math.PI) * 1.0;
+        if (rightLegRef.current) rightLegRef.current.rotation.x = Math.sin(time) * 1.0;
+        
+        if (bodyRef.current) bodyRef.current.position.y = 1.1 + Math.abs(Math.sin(time)) * 0.1;
     } else {
-      groupRef.current.visible = true;
+        // Jumping Pose
+        const jumpPoseSpeed = delta * 10;
+        if (leftArmRef.current) leftArmRef.current.rotation.x = THREE.MathUtils.lerp(leftArmRef.current.rotation.x, -2.5, jumpPoseSpeed);
+        if (rightArmRef.current) rightArmRef.current.rotation.x = THREE.MathUtils.lerp(rightArmRef.current.rotation.x, -2.5, jumpPoseSpeed);
+        if (leftLegRef.current) leftLegRef.current.rotation.x = THREE.MathUtils.lerp(leftLegRef.current.rotation.x, 0.5, jumpPoseSpeed);
+        if (rightLegRef.current) rightLegRef.current.rotation.x = THREE.MathUtils.lerp(rightLegRef.current.rotation.x, -0.5, jumpPoseSpeed);
+        
+        // Only reset Y if not flipping (handled by flip logic mostly, but safe here)
+        if (bodyRef.current && jumpsPerformed.current !== 2) bodyRef.current.position.y = 1.1; 
+    }
+
+    // 4. Dynamic Shadow
+    if (shadowRef.current) {
+        const height = groupRef.current.position.y;
+        const scale = Math.max(0.2, 1 - (height / 2.5) * 0.5); // 2.5 is max jump height approx
+        const runStretch = isJumping.current ? 1 : 1 + Math.abs(Math.sin(time)) * 0.3;
+
+        shadowRef.current.scale.set(scale, scale, scale * runStretch);
+        const material = shadowRef.current.material as THREE.MeshBasicMaterial;
+        if (material && !Array.isArray(material)) {
+            material.opacity = Math.max(0.1, 0.3 - (height / 2.5) * 0.2);
+        }
+    }
+
+    // Invincibility / Immortality Effect
+    const showFlicker = isInvincible.current || isImmortalityActive;
+    if (showFlicker) {
+        if (isInvincible.current) {
+             if (Date.now() - lastDamageTime.current > 1500) {
+                isInvincible.current = false;
+                groupRef.current.visible = true;
+             } else {
+                groupRef.current.visible = Math.floor(Date.now() / 50) % 2 === 0;
+             }
+        } 
+        if (isImmortalityActive) {
+            groupRef.current.visible = true; 
+        }
+    } else {
+        groupRef.current.visible = true;
     }
   });
 
+  // Damage Handler
   useEffect(() => {
-    const checkHit = () => {
-      if (isInvincible.current || isImmortalityActive || isShieldActive) return;
-      audio.playDamage();
-      takeDamage();
-      isInvincible.current = true;
-      lastDamageTime.current = Date.now();
-    };
-    window.addEventListener('player-hit', checkHit);
-    return () => window.removeEventListener('player-hit', checkHit);
-  }, [takeDamage, isImmortalityActive, isShieldActive]);
+     const checkHit = (e: any) => {
+        if (isInvincible.current || isImmortalityActive) return;
+        audio.playDamage(); // Play damage sound
+        takeDamage();
+        isInvincible.current = true;
+        lastDamageTime.current = Date.now();
+     };
+     window.addEventListener('player-hit', checkHit);
+     return () => window.removeEventListener('player-hit', checkHit);
+  }, [takeDamage, isImmortalityActive]);
 
   return (
     <group ref={groupRef} position={[0, 0, 0]}>
-      <group ref={bodyRef} position={[0, 1.1, 0]}>
+      <group ref={bodyRef} position={[0, 1.1, 0]}> 
+        
+        {/* Torso */}
         <mesh castShadow position={[0, 0.2, 0]} geometry={TORSO_GEO} material={armorMaterial} />
 
+        {/* Jetpack */}
         <mesh position={[0, 0.2, -0.2]} geometry={JETPACK_GEO} material={jointMaterial} />
         <mesh position={[-0.08, 0.1, -0.28]} geometry={GLOW_STRIP_GEO} material={glowMaterial} />
         <mesh position={[0.08, 0.1, -0.28]} geometry={GLOW_STRIP_GEO} material={glowMaterial} />
 
-        <mesh castShadow geometry={HEAD_GEO} material={armorMaterial} position={[0, 0.6, 0]} />
+        {/* Head */}
+        <group ref={headRef} position={[0, 0.6, 0]}>
+            <mesh castShadow geometry={HEAD_GEO} material={armorMaterial} />
+        </group>
 
+        {/* Arms */}
         <group position={[0.32, 0.4, 0]}>
-          <group ref={rightArmRef}>
-            <mesh position={[0, -0.25, 0]} castShadow geometry={ARM_GEO} material={armorMaterial} />
-            <mesh position={[0, -0.55, 0]} geometry={JOINT_SPHERE_GEO} material={glowMaterial} />
-          </group>
+            <group ref={rightArmRef}>
+                <mesh position={[0, -0.25, 0]} castShadow geometry={ARM_GEO} material={armorMaterial} />
+                <mesh position={[0, -0.55, 0]} geometry={JOINT_SPHERE_GEO} material={glowMaterial} />
+            </group>
         </group>
         <group position={[-0.32, 0.4, 0]}>
-          <group ref={leftArmRef}>
-            <mesh position={[0, -0.25, 0]} castShadow geometry={ARM_GEO} material={armorMaterial} />
-            <mesh position={[0, -0.55, 0]} geometry={JOINT_SPHERE_GEO} material={glowMaterial} />
-          </group>
+            <group ref={leftArmRef}>
+                 <mesh position={[0, -0.25, 0]} castShadow geometry={ARM_GEO} material={armorMaterial} />
+                 <mesh position={[0, -0.55, 0]} geometry={JOINT_SPHERE_GEO} material={glowMaterial} />
+            </group>
         </group>
 
+        {/* Hips */}
         <mesh position={[0, -0.15, 0]} geometry={HIPS_GEO} material={jointMaterial} />
 
+        {/* Legs */}
         <group position={[0.12, -0.25, 0]}>
-          <group ref={rightLegRef}>
-            <mesh position={[0, -0.35, 0]} castShadow geometry={LEG_GEO} material={armorMaterial} />
-          </group>
+            <group ref={rightLegRef}>
+                 <mesh position={[0, -0.35, 0]} castShadow geometry={LEG_GEO} material={armorMaterial} />
+            </group>
         </group>
         <group position={[-0.12, -0.25, 0]}>
-          <group ref={leftLegRef}>
-            <mesh position={[0, -0.35, 0]} castShadow geometry={LEG_GEO} material={armorMaterial} />
-          </group>
+            <group ref={leftLegRef}>
+                 <mesh position={[0, -0.35, 0]} castShadow geometry={LEG_GEO} material={armorMaterial} />
+            </group>
         </group>
       </group>
-
-      <mesh ref={shadowRef} position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} geometry={SHADOW_GEO} material={shadowMaterial} />
+      
+      <mesh ref={shadowRef} position={[0, 0.02, 0]} rotation={[-Math.PI/2, 0, 0]} geometry={SHADOW_GEO} material={shadowMaterial} />
     </group>
   );
 };

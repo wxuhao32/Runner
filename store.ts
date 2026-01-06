@@ -4,8 +4,10 @@
  */
 
 import { create } from 'zustand';
-import { GameMode, GameStatus, PowerUpType, RUN_SPEED_BASE } from './types';
+import { GameStatus, PowerUpType, RUN_SPEED_BASE } from './types';
 import type { Lang } from './i18n';
+
+type GameMode = 'STORY' | 'ENDLESS';
 
 interface GameState {
   status: GameStatus;
@@ -14,7 +16,13 @@ interface GameState {
   score: number;
   lives: number;
   maxLives: number;
+
+  /** Base run speed (before temporary multipliers). */
   speed: number;
+  /** Temporary multiplier from buffs like SLOW/BOOST. */
+  speedMultiplier: number;
+  /** Temporary multiplier for score (e.g. SCORE_X2). */
+  scoreMultiplier: number;
 
   collectedLetters: number[];
   level: number;
@@ -32,13 +40,10 @@ interface GameState {
   hasImmortality: boolean;
   isImmortalityActive: boolean;
 
-  // Buffs (局内道具)
-  isShieldActive: boolean;
+  // In-run buffs (pickups)
+  isControlsInverted: boolean;
   isMagnetActive: boolean;
-  isControlsReversed: boolean;
-  isSlowMoActive: boolean;
-  scoreMultiplier: number;
-  lastPowerUp: PowerUpType | null;
+  shieldCharges: number;
 
   // Actions
   startGame: () => void;
@@ -49,7 +54,7 @@ interface GameState {
   collectLetter: (index: number) => void;
   setStatus: (status: GameStatus) => void;
   setDistance: (dist: number) => void;
-  addSpeed: (delta: number) => void;
+  setSpeed: (speed: number) => void;
 
   // Shop / Abilities
   buyItem: (type: 'DOUBLE_JUMP' | 'MAX_LIFE' | 'HEAL' | 'IMMORTAL', cost: number) => boolean;
@@ -58,13 +63,10 @@ interface GameState {
   closeShop: () => void;
   activateImmortality: () => void;
 
-  // PowerUp
-  applyPowerUp: (p: PowerUpType) => void;
+  // Powerups
+  applyPowerUp: (type: PowerUpType) => void;
 
-  // Endless
-  startEndlessFromVictory: () => void;
-
-  // Legacy / debug
+  // Legacy / debug (unused but kept for compatibility)
   increaseLevel: () => void;
 }
 
@@ -76,53 +78,61 @@ function loadLang(): Lang {
   const saved = window.localStorage.getItem('runner.lang');
   if (saved === 'zh-CN' || saved === 'en-US') return saved;
 
+  // Fallback to browser language, defaulting to Chinese.
   const nav = (navigator.language || '').toLowerCase();
   if (nav.startsWith('en')) return 'en-US';
   return 'zh-CN';
 }
 
-// 统一管理 Buff 的 timeout，避免重复叠加 & 重开后残留
-const buffTimeouts: Partial<Record<PowerUpType, number>> = {};
-let victorySpeedCache = RUN_SPEED_BASE;
+// --- Buff timers (module-local) ---
+let invertTimer: number | null = null;
+let magnetTimer: number | null = null;
+let scoreTimer: number | null = null;
+let speedTimer: number | null = null;
 
-function setBuff(
-  set: any,
-  p: PowerUpType,
-  enablePatch: any,
-  disablePatch: any,
-  ms: number
-) {
-  if (typeof window !== 'undefined') {
-    const existing = buffTimeouts[p];
-    if (existing) window.clearTimeout(existing);
-    set(enablePatch);
-    buffTimeouts[p] = window.setTimeout(() => {
-      set(disablePatch);
-      buffTimeouts[p] = undefined;
-    }, ms);
+const speedEffect = {
+  slowUntil: 0,
+  boostUntil: 0,
+};
+
+function recomputeSpeedMultiplier(set: (p: Partial<GameState>) => void) {
+  const now = Date.now();
+  const slowOn = speedEffect.slowUntil > now;
+  const boostOn = speedEffect.boostUntil > now;
+
+  let mult = 1;
+  if (boostOn) mult *= 1.25;
+  if (slowOn) mult *= 0.75;
+  // Clamp to keep things sane.
+  mult = Math.max(0.55, Math.min(1.45, mult));
+
+  set({ speedMultiplier: mult });
+
+  // Reschedule for next expiry.
+  const next = Math.min(
+    slowOn ? speedEffect.slowUntil : Infinity,
+    boostOn ? speedEffect.boostUntil : Infinity,
+  );
+  if (next !== Infinity) {
+    if (speedTimer) window.clearTimeout(speedTimer);
+    speedTimer = window.setTimeout(() => recomputeSpeedMultiplier(set), Math.max(0, next - now) + 10);
   } else {
-    // SSR fallback
-    set(enablePatch);
+    if (speedTimer) window.clearTimeout(speedTimer);
+    speedTimer = null;
   }
-}
-
-function clearAllBuffTimers() {
-  if (typeof window === 'undefined') return;
-  (Object.keys(buffTimeouts) as PowerUpType[]).forEach((k) => {
-    const id = buffTimeouts[k];
-    if (id) window.clearTimeout(id);
-    buffTimeouts[k] = undefined;
-  });
 }
 
 export const useStore = create<GameState>((set, get) => ({
   status: GameStatus.MENU,
-  mode: GameMode.STORY,
+  mode: 'STORY',
 
   score: 0,
   lives: 6,
   maxLives: 6,
+
   speed: 0,
+  speedMultiplier: 1,
+  scoreMultiplier: 1,
 
   collectedLetters: [],
   level: 1,
@@ -133,12 +143,16 @@ export const useStore = create<GameState>((set, get) => ({
   // UI / Settings
   lang: loadLang(),
   setLang: (lang) => {
-    if (typeof window !== 'undefined') window.localStorage.setItem('runner.lang', lang);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('runner.lang', lang);
+    }
     set({ lang });
   },
   toggleLang: () => {
     const next: Lang = get().lang === 'zh-CN' ? 'en-US' : 'zh-CN';
-    if (typeof window !== 'undefined') window.localStorage.setItem('runner.lang', next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('runner.lang', next);
+    }
     set({ lang: next });
   },
 
@@ -147,24 +161,23 @@ export const useStore = create<GameState>((set, get) => ({
   hasImmortality: false,
   isImmortalityActive: false,
 
-  // Buffs
-  isShieldActive: false,
+  // In-run buffs
+  isControlsInverted: false,
   isMagnetActive: false,
-  isControlsReversed: false,
-  isSlowMoActive: false,
-  scoreMultiplier: 1,
-  lastPowerUp: null,
+  shieldCharges: 0,
 
-  startGame: () => {
-    clearAllBuffTimers();
+  startGame: () =>
     set({
       status: GameStatus.PLAYING,
-      mode: GameMode.STORY,
+      mode: 'STORY',
 
       score: 0,
       lives: 6,
       maxLives: 6,
+
       speed: RUN_SPEED_BASE,
+      speedMultiplier: 1,
+      scoreMultiplier: 1,
 
       collectedLetters: [],
       level: 1,
@@ -176,25 +189,23 @@ export const useStore = create<GameState>((set, get) => ({
       hasImmortality: false,
       isImmortalityActive: false,
 
-      isShieldActive: false,
+      isControlsInverted: false,
       isMagnetActive: false,
-      isControlsReversed: false,
-      isSlowMoActive: false,
-      scoreMultiplier: 1,
-      lastPowerUp: null,
-    });
-  },
+      shieldCharges: 0,
+    }),
 
-  restartGame: () => {
-    clearAllBuffTimers();
+  restartGame: () =>
     set({
       status: GameStatus.PLAYING,
-      mode: GameMode.STORY,
+      mode: 'STORY',
 
       score: 0,
       lives: 6,
       maxLives: 6,
+
       speed: RUN_SPEED_BASE,
+      speedMultiplier: 1,
+      scoreMultiplier: 1,
 
       collectedLetters: [],
       level: 1,
@@ -206,18 +217,20 @@ export const useStore = create<GameState>((set, get) => ({
       hasImmortality: false,
       isImmortalityActive: false,
 
-      isShieldActive: false,
+      isControlsInverted: false,
       isMagnetActive: false,
-      isControlsReversed: false,
-      isSlowMoActive: false,
-      scoreMultiplier: 1,
-      lastPowerUp: null,
-    });
-  },
+      shieldCharges: 0,
+    }),
 
   takeDamage: () => {
-    const { lives, isImmortalityActive, isShieldActive } = get();
-    if (isImmortalityActive || isShieldActive) return;
+    const { lives, isImmortalityActive, shieldCharges } = get();
+    if (isImmortalityActive) return;
+
+    // Shield absorbs one hit.
+    if (shieldCharges > 0) {
+      set({ shieldCharges: Math.max(0, shieldCharges - 1) });
+      return;
+    }
 
     if (lives > 1) {
       set({ lives: lives - 1 });
@@ -226,27 +239,37 @@ export const useStore = create<GameState>((set, get) => ({
     }
   },
 
-  addScore: (amount) => set((state) => ({ score: state.score + amount })),
+  addScore: (amount) => {
+    const mult = get().scoreMultiplier;
+    set((state) => ({ score: state.score + Math.floor(amount * mult) }));
+  },
 
-  collectGem: (value) =>
+  collectGem: (value) => {
+    const mult = get().scoreMultiplier;
     set((state) => ({
-      score: state.score + value * state.scoreMultiplier,
+      score: state.score + Math.floor(value * mult),
       gemsCollected: state.gemsCollected + 1,
-    })),
+    }));
+  },
 
   setDistance: (dist) => set({ distance: dist }),
-
-  addSpeed: (delta) => set((s) => ({ speed: Math.max(0, s.speed + delta) })),
+  setSpeed: (speed) => set({ speed }),
 
   collectLetter: (index) => {
     const { collectedLetters, level, speed, mode } = get();
-    if (mode !== GameMode.STORY) return;
+
+    // In ENDLESS mode letters are treated as simple score pickups.
+    if (mode === 'ENDLESS') {
+      get().addScore(250);
+      return;
+    }
 
     if (!collectedLetters.includes(index)) {
       const newLetters = [...collectedLetters, index];
 
-      // 每个字母增加速度
-      const speedIncrease = RUN_SPEED_BASE * 0.1;
+      // Difficulty balance: reduce speed growth a bit for better mobile control.
+      // Add 6% of BASE speed per letter: smooth, still rewarding.
+      const speedIncrease = RUN_SPEED_BASE * 0.06;
       const nextSpeed = speed + speedIncrease;
 
       set({
@@ -254,16 +277,18 @@ export const useStore = create<GameState>((set, get) => ({
         speed: nextSpeed,
       });
 
+      // Check if full word collected
       if (newLetters.length === GEMINI_TARGET.length) {
         if (level < MAX_LEVEL) {
           get().advanceLevel();
         } else {
-          // 胜利：暂停，让玩家选择“进入无限”
-          victorySpeedCache = nextSpeed;
+          // Story complete → seamlessly switch to ENDLESS.
+          // Keep playing, remove the hard "VICTORY" stop to enable infinite run.
           set({
-            status: GameStatus.VICTORY,
-            speed: 0,
+            mode: 'ENDLESS',
+            status: GameStatus.PLAYING,
             score: get().score + 5000,
+            collectedLetters: [],
           });
         }
       }
@@ -274,7 +299,8 @@ export const useStore = create<GameState>((set, get) => ({
     const { level, laneCount, speed } = get();
     const nextLevel = level + 1;
 
-    const speedIncrease = RUN_SPEED_BASE * 0.4;
+    // Difficulty balance: level speed increase toned down.
+    const speedIncrease = RUN_SPEED_BASE * 0.25;
     const newSpeed = speed + speedIncrease;
 
     set({
@@ -291,6 +317,7 @@ export const useStore = create<GameState>((set, get) => ({
 
   buyItem: (type, cost) => {
     const { score, maxLives, lives } = get();
+
     if (type === 'MAX_LIFE' && maxLives >= 6) return false;
 
     if (score >= cost) {
@@ -322,64 +349,52 @@ export const useStore = create<GameState>((set, get) => ({
     const { hasImmortality, isImmortalityActive } = get();
     if (hasImmortality && !isImmortalityActive) {
       set({ isImmortalityActive: true });
-      setTimeout(() => set({ isImmortalityActive: false }), 5000);
+      window.setTimeout(() => set({ isImmortalityActive: false }), 5000);
     }
   },
 
-  applyPowerUp: (p) => {
-    // UI 快闪提示
-    set({ lastPowerUp: p });
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => {
-        // 避免被后来的覆盖清掉：只清相同
-        if (get().lastPowerUp === p) set({ lastPowerUp: null });
-      }, 900);
+  applyPowerUp: (type) => {
+    const now = Date.now();
+
+    switch (type) {
+      case PowerUpType.SHIELD: {
+        const cur = get().shieldCharges;
+        set({ shieldCharges: Math.min(2, cur + 1) });
+        break;
+      }
+      case PowerUpType.MAGNET: {
+        if (magnetTimer) window.clearTimeout(magnetTimer);
+        set({ isMagnetActive: true });
+        magnetTimer = window.setTimeout(() => set({ isMagnetActive: false }), 6500);
+        break;
+      }
+      case PowerUpType.INVERT: {
+        if (invertTimer) window.clearTimeout(invertTimer);
+        set({ isControlsInverted: true });
+        invertTimer = window.setTimeout(() => set({ isControlsInverted: false }), 4500);
+        break;
+      }
+      case PowerUpType.SCORE_X2: {
+        if (scoreTimer) window.clearTimeout(scoreTimer);
+        set({ scoreMultiplier: 2 });
+        scoreTimer = window.setTimeout(() => set({ scoreMultiplier: 1 }), 6500);
+        break;
+      }
+      case PowerUpType.SLOW: {
+        speedEffect.slowUntil = Math.max(speedEffect.slowUntil, now + 5200);
+        recomputeSpeedMultiplier(set);
+        break;
+      }
+      case PowerUpType.BOOST: {
+        speedEffect.boostUntil = Math.max(speedEffect.boostUntil, now + 4200);
+        recomputeSpeedMultiplier(set);
+        break;
+      }
     }
-
-    switch (p) {
-      case PowerUpType.MAGNET:
-        setBuff(set, p, { isMagnetActive: true }, { isMagnetActive: false }, 6500);
-        break;
-      case PowerUpType.SHIELD:
-        setBuff(set, p, { isShieldActive: true }, { isShieldActive: false }, 5200);
-        break;
-      case PowerUpType.REVERSE:
-        setBuff(set, p, { isControlsReversed: true }, { isControlsReversed: false }, 7500);
-        break;
-      case PowerUpType.SLOWMO:
-        setBuff(set, p, { isSlowMoActive: true }, { isSlowMoActive: false }, 4200);
-        break;
-      case PowerUpType.SCOREX2:
-        setBuff(set, p, { scoreMultiplier: 2 }, { scoreMultiplier: 1 }, 8000);
-        break;
-    }
-  },
-
-  startEndlessFromVictory: () => {
-    // 从胜利界面进入无限：恢复速度、切换模式、清空字母
-    clearAllBuffTimers();
-    const base = Math.max(RUN_SPEED_BASE * 1.6, victorySpeedCache * 1.1);
-    set({
-      status: GameStatus.PLAYING,
-      mode: GameMode.ENDLESS,
-
-      speed: base,
-      collectedLetters: [],
-      // 让关卡数字继续上涨当“难度等级”
-      level: MAX_LEVEL + 1,
-      // lanes 保持不变（或你想也可以继续增）
-      scoreMultiplier: 1,
-
-      isShieldActive: false,
-      isMagnetActive: false,
-      isControlsReversed: false,
-      isSlowMoActive: false,
-      lastPowerUp: null,
-    });
   },
 
   setStatus: (status) => set({ status }),
 
+  // Legacy / debug (unused)
   increaseLevel: () => set((state) => ({ level: state.level + 1 })),
 }));
-

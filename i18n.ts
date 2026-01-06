@@ -53,6 +53,7 @@ const DICTS = {
 
     // HUD
     'ui.hud.level': 'LEVEL',
+    'ui.hud.endless': 'ENDLESS',
     'ui.hud.immortal': 'IMMORTAL',
     'ui.hud.speed': 'SPEED',
   },
@@ -101,6 +102,7 @@ const DICTS = {
 
     // HUD
     'ui.hud.level': '关卡',
+    'ui.hud.endless': '无限模式',
     'ui.hud.immortal': '无敌',
     'ui.hud.speed': '速度',
   },
