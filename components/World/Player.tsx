@@ -120,83 +120,62 @@ export const Player: React.FC = () => {
 
   // --- Event Listeners ---
   useEffect(() => {
-    // Keyboard Controls
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (status !== GameStatus.PLAYING) return;
+    // Movement / jump controls are swipe-based (mobile runner style).
+    // Keyboard + on-screen button movement controls were removed in iteration 2.
+    // NOTE: Skill activation is still available via tap (see touch handlers below).
+  }, []);
 
-      if (e.key === 'ArrowLeft') moveLeft();
-      else if (e.key === 'ArrowRight') moveRight();
-      else if (e.key === 'ArrowUp' || e.key === 'w') triggerJump();
-      else if (e.key === ' ' || e.key === 'Enter') {
-          activateImmortality();
-      }
-    };
-
-    // Virtual Button Event Handlers
-    const handleVirtualLeft = () => status === GameStatus.PLAYING && moveLeft();
-    const handleVirtualRight = () => status === GameStatus.PLAYING && moveRight();
-    const handleVirtualJump = () => status === GameStatus.PLAYING && triggerJump();
-    const handleVirtualAction = () => status === GameStatus.PLAYING && activateImmortality();
-
-    window.addEventListener('keydown', handleKeyDown);
-    
-    // Listen for custom events dispatched by HUD
-    window.addEventListener('control-left', handleVirtualLeft);
-    window.addEventListener('control-right', handleVirtualRight);
-    window.addEventListener('control-jump', handleVirtualJump);
-    window.addEventListener('control-action', handleVirtualAction);
-
-    return () => {
-        window.removeEventListener('keydown', handleKeyDown);
-        window.removeEventListener('control-left', handleVirtualLeft);
-        window.removeEventListener('control-right', handleVirtualRight);
-        window.removeEventListener('control-jump', handleVirtualJump);
-        window.removeEventListener('control-action', handleVirtualAction);
-    };
-  }, [status, laneCount, hasDoubleJump, activateImmortality]);
 
   // --- Touch / Swipe Controls ---
   useEffect(() => {
+    const opts: AddEventListenerOptions = { passive: false };
+
     const handleTouchStart = (e: TouchEvent) => {
-      // Prevent swipe logic if user is tapping a virtual button
-      // We assume buttons are HTMLButtonElements
+      // Ignore touches on UI buttons.
       if ((e.target as HTMLElement).closest('button')) return;
+
+      // Prevent page scrolling while swiping.
+      e.preventDefault();
 
       touchStartX.current = e.touches[0].clientX;
       touchStartY.current = e.touches[0].clientY;
     };
 
-    const handleTouchEnd = (e: TouchEvent) => {
-        if (status !== GameStatus.PLAYING) return;
-        
-        // Skip if this touch started on a button (though touchStartX won't be set correctly, 
-        // effectively protecting against misfires if we check logic below carefully)
-        // Simplest check: if deltas are 0 (unset) we skip, but here we assume user lifted finger.
-        // The start guard is usually enough.
-
-        const deltaX = e.changedTouches[0].clientX - touchStartX.current;
-        const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-        const maxLane = Math.floor(laneCount / 2);
-
-        // Swipe Detection
-        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 30) {
-             if (deltaX > 0) moveRight();
-             else moveLeft();
-        } else if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY < -30) {
-            triggerJump();
-        } else if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
-             // Only activate immortality on tap if it wasn't a button press
-             if (!(e.target as HTMLElement).closest('button')) {
-                activateImmortality();
-             }
-        }
+    const handleTouchMove = (e: TouchEvent) => {
+      // Prevent page scrolling while swiping, but allow UI buttons to work normally.
+      if ((e.target as HTMLElement).closest('button')) return;
+      e.preventDefault();
     };
 
-    window.addEventListener('touchstart', handleTouchStart);
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (status !== GameStatus.PLAYING) return;
+
+      const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+      const maxLane = Math.floor(laneCount / 2);
+
+      // Swipe Detection
+      if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 30) {
+        if (deltaX > 0) moveRight();
+        else moveLeft();
+      } else if (Math.abs(deltaY) > Math.abs(deltaX) && deltaY < -30) {
+        triggerJump();
+      } else if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+        // Tap: activate immortality skill (if purchased) and avoid misfires on buttons.
+        if (!(e.target as HTMLElement).closest('button')) {
+          activateImmortality();
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', handleTouchStart, opts);
+    window.addEventListener('touchmove', handleTouchMove, opts);
     window.addEventListener('touchend', handleTouchEnd);
+
     return () => {
-        window.removeEventListener('touchstart', handleTouchStart);
-        window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
     };
   }, [status, laneCount, hasDoubleJump, activateImmortality]);
 

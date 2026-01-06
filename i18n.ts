@@ -16,12 +16,13 @@ const DICTS = {
 
     // Menu
     'ui.menu.start': 'INITIALIZE RUN',
-    'ui.menu.controlsHint': '[ ARROWS / SWIPE / ON-SCREEN ]',
+    'ui.menu.controlsHint': '[ SWIPE ←/→: CHANGE LANE · SWIPE ↑: JUMP · TAP: SKILL ]',
 
     // Shop
     'ui.shop.title': 'CYBER SHOP',
     'ui.shop.credits': 'AVAILABLE CREDITS:',
     'ui.shop.buyUnit': 'GEMS',
+    'ui.shop.maxed': 'MAX',
     'ui.shop.resume': 'RESUME MISSION',
 
     // Shop items
@@ -32,7 +33,7 @@ const DICTS = {
     'shop.item.HEAL.name': 'REPAIR KIT',
     'shop.item.HEAL.desc': 'Restores 1 Life point instantly.',
     'shop.item.IMMORTAL.name': 'IMMORTALITY',
-    'shop.item.IMMORTAL.desc': 'Unlock Ability: Press Space/Tap to be invincible for 5s.',
+    'shop.item.IMMORTAL.desc': 'Unlock Ability: Tap to be invincible for 5s.',
 
     // Game over
     'ui.gameOver.title': 'GAME OVER',
@@ -63,12 +64,13 @@ const DICTS = {
 
     // Menu
     'ui.menu.start': '开始游戏',
-    'ui.menu.controlsHint': '[ 方向键 / 滑动 / 屏幕按钮 ]',
+    'ui.menu.controlsHint': '[ 左右滑动换道 · 上滑跳跃 · 点击触发技能 ]',
 
     // Shop
     'ui.shop.title': '赛博商店',
     'ui.shop.credits': '可用积分：',
     'ui.shop.buyUnit': '宝石',
+    'ui.shop.maxed': '已满',
     'ui.shop.resume': '继续任务',
 
     // Shop items
@@ -79,7 +81,7 @@ const DICTS = {
     'shop.item.HEAL.name': '修理包',
     'shop.item.HEAL.desc': '立即恢复 1 点生命。',
     'shop.item.IMMORTAL.name': '不朽',
-    'shop.item.IMMORTAL.desc': '解锁技能：按 空格/点击，获得 5 秒无敌。',
+    'shop.item.IMMORTAL.desc': '解锁技能：点击屏幕触发 5 秒无敌。',
 
     // Game over
     'ui.gameOver.title': '游戏结束',

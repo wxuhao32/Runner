@@ -90,7 +90,7 @@ function App() {
   }, [fsSupported, toggleFs, toggleLang]);
 
   return (
-    <div id="app-root" className="relative w-full h-screen bg-black overflow-hidden select-none">
+    <div id="app-root" className="relative w-full h-screen bg-black overflow-hidden select-none touch-none">
       <HUD />
       <Canvas
         shadows

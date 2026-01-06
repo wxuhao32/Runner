@@ -67,8 +67,8 @@ function loadLang(): Lang {
 export const useStore = create<GameState>((set, get) => ({
   status: GameStatus.MENU,
   score: 0,
-  lives: 3,
-  maxLives: 3,
+  lives: 6,
+  maxLives: 6,
   speed: 0,
   collectedLetters: [],
   level: 1,
@@ -101,8 +101,8 @@ export const useStore = create<GameState>((set, get) => ({
     set({
       status: GameStatus.PLAYING,
       score: 0,
-      lives: 3,
-      maxLives: 3,
+      lives: 6,
+  maxLives: 6,
       speed: RUN_SPEED_BASE,
       collectedLetters: [],
       level: 1,
@@ -118,8 +118,8 @@ export const useStore = create<GameState>((set, get) => ({
     set({
       status: GameStatus.PLAYING,
       score: 0,
-      lives: 3,
-      maxLives: 3,
+      lives: 6,
+  maxLives: 6,
       speed: RUN_SPEED_BASE,
       collectedLetters: [],
       level: 1,
@@ -210,6 +210,9 @@ export const useStore = create<GameState>((set, get) => ({
   buyItem: (type, cost) => {
     const { score, maxLives, lives } = get();
 
+    // Prevent wasting credits if max life is already capped.
+    if (type === 'MAX_LIFE' && maxLives >= 6) return false;
+
     if (score >= cost) {
       set({ score: score - cost });
 
@@ -217,9 +220,13 @@ export const useStore = create<GameState>((set, get) => ({
         case 'DOUBLE_JUMP':
           set({ hasDoubleJump: true });
           break;
-        case 'MAX_LIFE':
-          set({ maxLives: maxLives + 1, lives: lives + 1 });
+        case 'MAX_LIFE': {
+          const nextMax = Math.min(maxLives + 1, 6);
+          // Heal by 1 as well (but never exceed nextMax)
+          const nextLives = Math.min(lives + 1, nextMax);
+          set({ maxLives: nextMax, lives: nextLives });
           break;
+        }
         case 'HEAL':
           set({ lives: Math.min(lives + 1, maxLives) });
           break;

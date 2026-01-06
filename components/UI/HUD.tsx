@@ -16,10 +16,7 @@ import {
   Activity,
   PlusCircle,
   Play,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  Languages,
+Languages,
   Maximize2,
   Minimize2,
 } from 'lucide-react';
@@ -63,12 +60,17 @@ const SHOP_ITEMS: ShopItem[] = [
   },
 ];
 
-const TopRightControls: React.FC = () => {
+const TopLeftControls: React.FC<{ variant?: 'absolute' | 'inline' }> = ({ variant = 'absolute' }) => {
   const { lang, toggleLang } = useStore();
   const { supported, isFullscreen, toggle } = useFullscreen('app-root');
 
+  const wrapperClass =
+    variant === 'absolute'
+      ? 'absolute top-4 left-4 z-[120] pointer-events-auto flex gap-2'
+      : 'pointer-events-auto flex gap-2';
+
   return (
-    <div className="absolute top-4 right-4 z-[120] pointer-events-auto flex gap-2">
+    <div className={wrapperClass}>
       <button
         onClick={toggleLang}
         title={t(lang, 'ui.common.toggleLang')}
@@ -95,7 +97,7 @@ const TopRightControls: React.FC = () => {
 };
 
 const ShopScreen: React.FC = () => {
-  const { score, buyItem, closeShop, hasDoubleJump, hasImmortality, lang } = useStore();
+  const { score, buyItem, closeShop, hasDoubleJump, hasImmortality, lang, maxLives } = useStore();
   const [items, setItems] = useState<ShopItem[]>([]);
 
   useEffect(() => {
@@ -103,6 +105,7 @@ const ShopScreen: React.FC = () => {
     let pool = SHOP_ITEMS.filter((item) => {
       if (item.id === 'DOUBLE_JUMP' && hasDoubleJump) return false;
       if (item.id === 'IMMORTAL' && hasImmortality) return false;
+      if (item.id === 'MAX_LIFE' && maxLives >= 6) return false;
       return true;
     });
 
@@ -113,7 +116,7 @@ const ShopScreen: React.FC = () => {
 
   return (
     <div className="absolute inset-0 bg-black/90 z-[100] text-white pointer-events-auto backdrop-blur-md overflow-y-auto">
-      <TopRightControls />
+      <TopLeftControls />
       <div className="flex flex-col items-center justify-center min-h-full py-8 px-4">
         <h2 className="text-3xl md:text-4xl font-black text-cyan-400 mb-2 font-cyber tracking-widest text-center">
           {t(lang, 'ui.shop.title')}
@@ -127,6 +130,8 @@ const ShopScreen: React.FC = () => {
           {items.map((item) => {
             const Icon = item.icon;
             const canAfford = score >= item.cost;
+            const isMaxed = item.id === 'MAX_LIFE' && maxLives >= 6;
+            const isDisabled = !canAfford || isMaxed;
             const nameKey = `shop.item.${item.id}.name` as any;
             const descKey = `shop.item.${item.id}.desc` as any;
 
@@ -144,14 +149,14 @@ const ShopScreen: React.FC = () => {
                 </p>
                 <button
                   onClick={() => buyItem(item.id as any, item.cost)}
-                  disabled={!canAfford}
+                  disabled={isDisabled}
                   className={`px-4 md:px-6 py-2 rounded font-bold w-full text-sm md:text-base ${
-                    canAfford
+                    !isDisabled
                       ? 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:brightness-110'
                       : 'bg-gray-700 cursor-not-allowed opacity-50'
                   }`}
                 >
-                  {item.cost} {t(lang, 'ui.shop.buyUnit')}
+                  {isMaxed ? t(lang, 'ui.shop.maxed') : (<>{item.cost} {t(lang, 'ui.shop.buyUnit')}</>)}
                 </button>
               </div>
             );
@@ -170,64 +175,6 @@ const ShopScreen: React.FC = () => {
 };
 
 // --- Mobile Virtual Controls ---
-const MobileControls: React.FC = () => {
-  const trigger = (event: string) => {
-    window.dispatchEvent(new Event(event));
-    if (navigator.vibrate) navigator.vibrate(5);
-  };
-
-  return (
-    <div className="absolute inset-x-0 bottom-0 p-6 pb-8 flex justify-between items-end pointer-events-none z-[60]">
-      {/* Left/Right Controls */}
-      <div className="flex gap-4 pointer-events-auto">
-        <button
-          className="w-16 h-16 rounded-full bg-white/10 border-2 border-white/20 backdrop-blur-md flex items-center justify-center active:bg-white/30 active:scale-95 transition-all touch-none"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            trigger('control-left');
-          }}
-        >
-          <ArrowLeft className="w-8 h-8 text-cyan-400" />
-        </button>
-        <button
-          className="w-16 h-16 rounded-full bg-white/10 border-2 border-white/20 backdrop-blur-md flex items-center justify-center active:bg-white/30 active:scale-95 transition-all touch-none"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            trigger('control-right');
-          }}
-        >
-          <ArrowRight className="w-8 h-8 text-cyan-400" />
-        </button>
-      </div>
-
-      {/* Action Controls */}
-      <div className="flex gap-4 items-end pointer-events-auto">
-        {/* Skill Button (Smaller) */}
-        <button
-          className="w-14 h-14 mb-2 rounded-full bg-yellow-500/20 border-2 border-yellow-400/30 backdrop-blur-md flex items-center justify-center active:bg-yellow-500/40 active:scale-95 transition-all touch-none"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            trigger('control-action');
-          }}
-        >
-          <Shield className="w-6 h-6 text-yellow-400" />
-        </button>
-
-        {/* Jump Button (Larger) */}
-        <button
-          className="w-20 h-20 rounded-full bg-purple-600/30 border-2 border-purple-400/50 backdrop-blur-md flex items-center justify-center active:bg-purple-600/50 active:scale-95 transition-all touch-none shadow-[0_0_20px_rgba(168,85,247,0.3)]"
-          onPointerDown={(e) => {
-            e.preventDefault();
-            trigger('control-jump');
-          }}
-        >
-          <ArrowUp className="w-10 h-10 text-white" />
-        </button>
-      </div>
-    </div>
-  );
-};
-
 export const HUD: React.FC = () => {
   const {
     score,
@@ -256,7 +203,7 @@ export const HUD: React.FC = () => {
   if (status === GameStatus.MENU) {
     return (
       <div className="absolute inset-0 flex items-center justify-center z-[100] bg-black/80 backdrop-blur-sm p-4 pointer-events-auto">
-        <TopRightControls />
+        <TopLeftControls />
         {/* Card Container */}
         <div className="relative w-full max-w-md rounded-3xl overflow-hidden shadow-[0_0_50px_rgba(0,255,255,0.2)] border border-white/10 animate-in zoom-in-95 duration-500">
           {/* Image Container - Auto height to fit full image without cropping */}
@@ -298,7 +245,7 @@ export const HUD: React.FC = () => {
   if (status === GameStatus.GAME_OVER) {
     return (
       <div className="absolute inset-0 bg-black/90 z-[100] text-white pointer-events-auto backdrop-blur-sm overflow-y-auto">
-        <TopRightControls />
+        <TopLeftControls />
         <div className="flex flex-col items-center justify-center min-h-full py-8 px-4">
           <h1 className="text-4xl md:text-6xl font-black text-white mb-6 drop-shadow-[0_0_10px_rgba(255,0,0,0.8)] font-cyber text-center">
             {t(lang, 'ui.gameOver.title')}
@@ -348,7 +295,7 @@ export const HUD: React.FC = () => {
   if (status === GameStatus.VICTORY) {
     return (
       <div className="absolute inset-0 bg-gradient-to-b from-purple-900/90 to-black/95 z-[100] text-white pointer-events-auto backdrop-blur-md overflow-y-auto">
-        <TopRightControls />
+        <TopLeftControls />
         <div className="flex flex-col items-center justify-center min-h-full py-8 px-4">
           <Rocket className="w-16 h-16 md:w-24 md:h-24 text-yellow-400 mb-4 animate-bounce drop-shadow-[0_0_15px_rgba(255,215,0,0.6)]" />
           <h1 className="text-3xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-orange-500 to-pink-500 mb-2 drop-shadow-[0_0_20px_rgba(255,165,0,0.6)] font-cyber text-center leading-tight">
@@ -391,11 +338,11 @@ export const HUD: React.FC = () => {
 
   return (
     <>
-      <TopRightControls />
       <div className={containerClass}>
         {/* Top Bar */}
         <div className="flex justify-between items-start w-full">
           <div className="flex flex-col">
+            <TopLeftControls variant="inline" />
             <div className="text-3xl md:text-5xl font-bold text-cyan-400 drop-shadow-[0_0_10px_#00ffff] font-cyber">
               {score.toLocaleString()}
             </div>
@@ -459,13 +406,6 @@ export const HUD: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Mobile Controls - Visible on screens smaller than lg (desktop) */}
-      {status === GameStatus.PLAYING && (
-        <div className="lg:hidden">
-          <MobileControls />
-        </div>
-      )}
-    </>
+</>
   );
 };
