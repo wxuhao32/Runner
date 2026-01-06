@@ -1,16 +1,18 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
-*/
-
+ */
 
 export enum GameStatus {
   MENU = 'MENU',
   PLAYING = 'PLAYING',
   SHOP = 'SHOP',
   GAME_OVER = 'GAME_OVER',
-  VICTORY = 'VICTORY'
+  VICTORY = 'VICTORY',
 }
+
+// In-run buff types (picked up from items)
+export type BuffType = 'REVERSE' | 'MAGNET' | 'SPEED' | 'SCORE_X2';
 
 export enum ObjectType {
   OBSTACLE = 'OBSTACLE',
@@ -18,7 +20,13 @@ export enum ObjectType {
   LETTER = 'LETTER',
   SHOP_PORTAL = 'SHOP_PORTAL',
   ALIEN = 'ALIEN',
-  MISSILE = 'MISSILE'
+  MISSILE = 'MISSILE',
+
+  // Powerups (buffs apply instantly on pickup)
+  POWERUP_REVERSE = 'POWERUP_REVERSE',
+  POWERUP_MAGNET = 'POWERUP_MAGNET',
+  POWERUP_SPEED = 'POWERUP_SPEED',
+  POWERUP_SCORE_X2 = 'POWERUP_SCORE_X2',
 }
 
 export interface GameObject {
@@ -42,19 +50,20 @@ export const REMOVE_DISTANCE = 20; // Behind player
 
 // Google-ish Neon Colors: Blue, Red, Yellow, Blue, Green, Red
 export const GEMINI_COLORS = [
-    '#2979ff', // G - Blue
-    '#ff1744', // E - Red
-    '#ffea00', // M - Yellow
-    '#2979ff', // I - Blue
-    '#00e676', // N - Green
-    '#ff1744', // I - Red
+  '#2979ff', // G - Blue
+  '#ff1744', // E - Red
+  '#ffea00', // M - Yellow
+  '#2979ff', // I - Blue
+  '#00e676', // N - Green
+  '#ff1744', // I - Red
 ];
 
 export interface ShopItem {
-    id: string;
-    name: string;
-    description: string;
-    cost: number;
-    icon: any; // Lucide icon component
-    oneTime?: boolean; // If true, remove from pool after buying
+  id: string;
+  name: string;
+  description: string;
+  cost: number;
+  icon: any; // Lucide icon component
+  oneTime?: boolean; // If true, remove from pool after buying
 }
+
