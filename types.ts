@@ -11,8 +11,10 @@ export enum GameStatus {
   VICTORY = 'VICTORY',
 }
 
-// In-run buff types (picked up from items)
-export type BuffType = 'REVERSE' | 'MAGNET' | 'SPEED' | 'SCORE_X2';
+export enum GameMode {
+  STORY = 'STORY',
+  ENDLESS = 'ENDLESS',
+}
 
 export enum ObjectType {
   OBSTACLE = 'OBSTACLE',
@@ -21,12 +23,15 @@ export enum ObjectType {
   SHOP_PORTAL = 'SHOP_PORTAL',
   ALIEN = 'ALIEN',
   MISSILE = 'MISSILE',
+  POWERUP = 'POWERUP',
+}
 
-  // Powerups (buffs apply instantly on pickup)
-  POWERUP_REVERSE = 'POWERUP_REVERSE',
-  POWERUP_MAGNET = 'POWERUP_MAGNET',
-  POWERUP_SPEED = 'POWERUP_SPEED',
-  POWERUP_SCORE_X2 = 'POWERUP_SCORE_X2',
+export enum PowerUpType {
+  MAGNET = 'MAGNET', // 吸附
+  SHIELD = 'SHIELD', // 护盾无敌
+  REVERSE = 'REVERSE', // 操控反转
+  SLOWMO = 'SLOWMO', // 子弹时间
+  SCOREX2 = 'SCOREX2', // 双倍分
 }
 
 export interface GameObject {
@@ -34,11 +39,20 @@ export interface GameObject {
   type: ObjectType;
   position: [number, number, number]; // x, y, z
   active: boolean;
-  value?: string; // For letters (G, E, M...)
+
+  // Letter
+  value?: string;
+  targetIndex?: number;
+
+  // Visual / points
   color?: string;
-  targetIndex?: number; // Index in the GEMINI target word
-  points?: number; // Score value for gems
-  hasFired?: boolean; // For Aliens
+  points?: number;
+
+  // Alien
+  hasFired?: boolean;
+
+  // PowerUp
+  powerUp?: PowerUpType;
 }
 
 export const LANE_WIDTH = 2.2;
@@ -49,14 +63,7 @@ export const SPAWN_DISTANCE = 120;
 export const REMOVE_DISTANCE = 20; // Behind player
 
 // Google-ish Neon Colors: Blue, Red, Yellow, Blue, Green, Red
-export const GEMINI_COLORS = [
-  '#2979ff', // G - Blue
-  '#ff1744', // E - Red
-  '#ffea00', // M - Yellow
-  '#2979ff', // I - Blue
-  '#00e676', // N - Green
-  '#ff1744', // I - Red
-];
+export const GEMINI_COLORS = ['#2979ff', '#ff1744', '#ffea00', '#2979ff', '#00e676', '#ff1744'];
 
 export interface ShopItem {
   id: string;
@@ -64,6 +71,6 @@ export interface ShopItem {
   description: string;
   cost: number;
   icon: any; // Lucide icon component
-  oneTime?: boolean; // If true, remove from pool after buying
+  oneTime?: boolean;
 }
 
