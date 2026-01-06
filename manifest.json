@@ -1,0 +1,11 @@
+{
+  "name": "Gemini Runner",
+  "short_name": "Runner",
+  "description": "A fast-paced AI-powered endless runner game built with Gemini.",
+  "start_url": "https://mellow-melomakarona-d14ffc.netlify.app/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "orientation": "portrait",
+  "scope": "/"
+}
